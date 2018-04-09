@@ -25,6 +25,8 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Random;
 
+import hugo.weaving.DebugLog;
+
 import static com.eric.polygonsdemo.MapConstants.HEATMAP_DATA;
 
 public class MapsActivity extends FragmentActivity implements OnMapReadyCallback {
@@ -34,6 +36,7 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
     private boolean arePolygonsShowing = false;
     private List<Polygon> polygonsDrawn = new ArrayList<>();
     private Button ctaPolygons;
+    private SimpleCountingIdlingResource mapIdlingResource;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -54,6 +57,8 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
         SupportMapFragment mapFragment = (SupportMapFragment) getSupportFragmentManager()
                 .findFragmentById(R.id.map);
         mapFragment.getMapAsync(this);
+        mapIdlingResource = new SimpleCountingIdlingResource("mapready");
+        mapIdlingResource.increment();
     }
 
     private void togglePolygons() {
@@ -63,7 +68,8 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
             hidePolygons();
         }
         arePolygonsShowing = !arePolygonsShowing;
-        ctaPolygons.setText(arePolygonsShowing ? "Hide polygons" : "Show polygons");
+        ctaPolygons.setText(arePolygonsShowing ? "Hide polygons" : getString(R.string
+                .cta_show_polygons));
     }
 
     private void hidePolygons() {
@@ -73,10 +79,15 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
         polygonsDrawn.clear();
     }
 
+    @DebugLog
     private void showPolygons() {
+        SimpleCountingIdlingResource idlingResource = new SimpleCountingIdlingResource
+                ("showpolygons");
+//        idlingResource.increment();
         for (int i = 0; i < polygonOptionsList.size(); i++) {
             polygonsDrawn.add(mMap.addPolygon(polygonOptionsList.get(i)));
         }
+//        idlingResource.decrement();
     }
 
     private void initPolygonList() {
@@ -132,11 +143,13 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
      * it inside the SupportMapFragment. This method will only be triggered once the user has
      * installed Google Play services and returned to the app.
      */
+    @DebugLog
     @Override
     public void onMapReady(GoogleMap googleMap) {
         mMap = googleMap;
 
         LatLng jakarta = new LatLng(-6.175110, 106.865039);
         mMap.moveCamera(CameraUpdateFactory.newLatLngZoom(jakarta, 10.0f));
+        mapIdlingResource.decrement();
     }
 }

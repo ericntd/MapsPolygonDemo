@@ -7,7 +7,7 @@
         android:id="@+id/cta_polygons"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Show Polygons" />
+        android:text="@string/cta_show_polygons" />
 
     <fragment
         android:id="@+id/map"
