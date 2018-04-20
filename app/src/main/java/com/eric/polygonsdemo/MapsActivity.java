@@ -139,18 +139,35 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
         Timber.i("number of polygons: %d", polygonOptionsList.size());
     }
 
+    private int getColour(Double demand) {
+        double alpha = (demand - demandMin) / (demandMax - demandMin);
+        return adjustAlpha(Color.MAGENTA, alpha);
+    }
+
+    private int adjustAlpha(int color,
+                            double factor) {
+        int alpha = (int) Math.round(Color.alpha(color) * factor);
+        int red = Color.red(color);
+        int green = Color.green(color);
+        int blue = Color.blue(color);
+        return Color.argb(alpha, red, green, blue);
+    }
+
     private int getColourBucket(double demand) {
         final int color;
         int tier;
         if (Double.compare(demand, demandMin) >= 0 && Double.compare(demand, demandTier2) < 0) {
-            color = Color.MAGENTA - ALPHA_SUBTRACT_MAX;
+//            color = Color.MAGENTA - ALPHA_SUBTRACT_MAX;
+            color = adjustAlpha(Color.MAGENTA, 0.2d);
             tier = 1;
         } else if (Double.compare(demand, demandTier2) >= 0 && Double.compare(demand,
                 demandTier3) < 0) {
-            color = Color.MAGENTA - ALPHA_SUBTRACT_MEDIUM;
+//            color = Color.MAGENTA - ALPHA_SUBTRACT_MEDIUM;
+            color = adjustAlpha(Color.MAGENTA, 0.5d);
             tier = 2;
         } else {
-            color = Color.MAGENTA - ALPHA_UBTRACT_MIN;
+//            color = Color.MAGENTA - ALPHA_UBTRACT_MIN;
+            color = adjustAlpha(Color.MAGENTA, 0.8d);
             tier = 3;
         }
         Timber.i("demand %f belongs to tier %d", demand, tier);
