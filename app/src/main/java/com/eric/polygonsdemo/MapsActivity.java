@@ -132,7 +132,7 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
             polygon.add(new LatLng(latlngs[0], latlngs[3]));
             polygon.add(new LatLng(latlngs[0], latlngs[2]));
             polygonOptionsList.add(new PolygonOptions().addAll(polygon)
-                    .fillColor(getColourBucket(demandScores.get(i)))
+                    .fillColor(getColour(demandScores.get(i)))
                     .strokeColor(Color.TRANSPARENT)
                     .strokeWidth(0));
         }
@@ -140,6 +140,9 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
     }
 
     private int getColour(Double demand) {
+        if (BuildConfig.FLAVOR.equalsIgnoreCase("versionB")) {
+            return getColourBucket(demand);
+        }
         double alpha = (demand - demandMin) / (demandMax - demandMin);
         return adjustAlpha(Color.MAGENTA, alpha);
     }
@@ -154,6 +157,7 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
     }
 
     private int getColourBucket(double demand) {
+        Timber.i("getColourBucket");
         final int color;
         int tier;
         if (Double.compare(demand, demandMin) >= 0 && Double.compare(demand, demandTier2) < 0) {
