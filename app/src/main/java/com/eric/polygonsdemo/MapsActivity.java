@@ -144,6 +144,8 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
             return getColourBucket(demand);
         }
         double alpha = (demand - demandMin) / (demandMax - demandMin);
+        // put alpha into 0.35-0.9 range
+        alpha = (alpha * (0.9 - 0.35)) + 0.35;
         return adjustAlpha(Color.MAGENTA, alpha);
     }
 
@@ -162,16 +164,16 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
         int tier;
         if (Double.compare(demand, demandMin) >= 0 && Double.compare(demand, demandTier2) < 0) {
 //            color = Color.MAGENTA - ALPHA_SUBTRACT_MAX;
-            color = adjustAlpha(Color.MAGENTA, 0.2d);
+            color = adjustAlpha(Color.MAGENTA, 0.35);
             tier = 1;
         } else if (Double.compare(demand, demandTier2) >= 0 && Double.compare(demand,
                 demandTier3) < 0) {
 //            color = Color.MAGENTA - ALPHA_SUBTRACT_MEDIUM;
-            color = adjustAlpha(Color.MAGENTA, 0.5d);
+            color = adjustAlpha(Color.MAGENTA, 0.6);
             tier = 2;
         } else {
 //            color = Color.MAGENTA - ALPHA_UBTRACT_MIN;
-            color = adjustAlpha(Color.MAGENTA, 0.8d);
+            color = adjustAlpha(Color.MAGENTA, 0.9);
             tier = 3;
         }
         Timber.i("demand %f belongs to tier %d", demand, tier);
