@@ -1,8 +1,8 @@
 package com.eric.polygonsdemo;
 
 import android.graphics.Color;
-import android.support.v4.app.FragmentActivity;
 import android.os.Bundle;
+import android.support.v4.app.FragmentActivity;
 import android.util.Log;
 import android.view.View;
 import android.widget.Button;
@@ -12,9 +12,9 @@ import com.google.android.gms.maps.GoogleMap;
 import com.google.android.gms.maps.OnMapReadyCallback;
 import com.google.android.gms.maps.SupportMapFragment;
 import com.google.android.gms.maps.model.LatLng;
-import com.google.android.gms.maps.model.MarkerOptions;
 import com.google.android.gms.maps.model.Polygon;
 import com.google.android.gms.maps.model.PolygonOptions;
+import com.orhanobut.logger.Logger;
 
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -22,14 +22,18 @@ import org.json.JSONObject;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
-import java.util.Random;
 
-import hugo.weaving.DebugLog;
+import timber.log.Timber;
 
 import static com.eric.polygonsdemo.MapConstants.HEATMAP_DATA;
 
 public class MapsActivity extends FragmentActivity implements OnMapReadyCallback {
+
+    private static final int ALPHA_SUBTRACT_MAX = 0xCC000000;// 80%
+    private static final int ALPHA_SUBTRACT_MEDIUM = 0x80000000;// 50%
+    private static final int ALPHA_UBTRACT_MIN = 0x33000000;// 20%
 
     private GoogleMap mMap;
     private List<PolygonOptions> polygonOptionsList = new ArrayList<>();
@@ -37,6 +41,10 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
     private List<Polygon> polygonsDrawn = new ArrayList<>();
     private Button ctaPolygons;
     private SimpleCountingIdlingResource mapIdlingResource;
+    private double demandMax;
+    private double demandMin;
+    private double demandTier2;
+    private double demandTier3;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -68,8 +76,9 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
             hidePolygons();
         }
         arePolygonsShowing = !arePolygonsShowing;
-        ctaPolygons.setText(arePolygonsShowing ? "Hide polygons" : getString(R.string
-                .cta_show_polygons));
+        ctaPolygons.setText(arePolygonsShowing ? getString(R.string.cta_hide_polygons) :
+                getString(R.string
+                        .cta_show_polygons));
     }
 
     private void hidePolygons() {
@@ -79,7 +88,6 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
         polygonsDrawn.clear();
     }
 
-    @DebugLog
     private void showPolygons() {
         SimpleCountingIdlingResource idlingResource = new SimpleCountingIdlingResource
                 ("showpolygons");
@@ -93,17 +101,27 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
     private void initPolygonList() {
         JSONArray array;
         List<double[]> list = new ArrayList<>();
+        List<Double> demandScores = new ArrayList<>();
         try {
             JSONObject tmp = new JSONObject(HEATMAP_DATA);
             array = tmp.getJSONArray("data");
             for (int i = 0; i < array.length(); i++) {
                 JSONObject row = array.getJSONObject(i);
                 String geohash = row.getString("geohash");
+                double demand = row.getDouble("score");
+                demandScores.add(demand);
                 list.add(GeoHashUtils.decode(geohash));
             }
         } catch (JSONException e) {
             Log.e("", "problem", e);
         }
+        demandMax = Collections.max(demandScores);
+        demandTier2 = demandMin + (demandMax - demandMin) / 3;
+        demandTier3 = demandMin + (demandMax - demandMin) * 2 / 3;
+        demandMin = Collections.min(demandScores);
+        Timber.i("demand thresholds: %s", Arrays.toString(new Double[]{demandMin, demandTier2,
+                demandTier3,
+                demandMax}));
 
         polygonOptionsList = new ArrayList<>();
         for (int i = 0; i < list.size(); i++) {
@@ -113,25 +131,30 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
             polygon.add(new LatLng(latlngs[1], latlngs[3]));
             polygon.add(new LatLng(latlngs[0], latlngs[3]));
             polygon.add(new LatLng(latlngs[0], latlngs[2]));
-            int randomNum = new Random().nextInt(2);
-            int alphaAdjustment = 0x77000000;
-            int color = Color.YELLOW - alphaAdjustment;
-            switch (randomNum) {
-                case 2:
-                    color = Color.RED - alphaAdjustment;
-                    break;
-                case 1:
-                    color = Color.GREEN - alphaAdjustment;
-                    break;
-                case 0:
-                    color = Color.BLUE - alphaAdjustment;
-            }
             polygonOptionsList.add(new PolygonOptions().addAll(polygon)
-                    .fillColor(color)
+                    .fillColor(getColourBucket(demandScores.get(i)))
                     .strokeColor(Color.TRANSPARENT)
                     .strokeWidth(0));
         }
-        Log.i("", String.format("number of polygons: %d", polygonOptionsList.size()));
+        Timber.i("number of polygons: %d", polygonOptionsList.size());
+    }
+
+    private int getColourBucket(double demand) {
+        final int color;
+        int tier;
+        if (Double.compare(demand, demandMin) >= 0 && Double.compare(demand, demandTier2) < 0) {
+            color = Color.MAGENTA - ALPHA_SUBTRACT_MAX;
+            tier = 1;
+        } else if (Double.compare(demand, demandTier2) >= 0 && Double.compare(demand,
+                demandTier3) < 0) {
+            color = Color.MAGENTA - ALPHA_SUBTRACT_MEDIUM;
+            tier = 2;
+        } else {
+            color = Color.MAGENTA - ALPHA_UBTRACT_MIN;
+            tier = 3;
+        }
+        Timber.i("demand %f belongs to tier %d", demand, tier);
+        return color;
     }
 
     /**
@@ -143,7 +166,6 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
      * it inside the SupportMapFragment. This method will only be triggered once the user has
      * installed Google Play services and returned to the app.
      */
-    @DebugLog
     @Override
     public void onMapReady(GoogleMap googleMap) {
         mMap = googleMap;
