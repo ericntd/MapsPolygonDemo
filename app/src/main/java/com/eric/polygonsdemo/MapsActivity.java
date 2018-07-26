@@ -47,7 +47,7 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
 
     private Disposable disposable;
     private Disposable disposable1;
-    private View ctaPolygonsBatches;
+    private Button ctaPolygonsBatches;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -137,10 +137,13 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
         if (!arePolygonsShowing) {
             showPolygons(batch);
         } else {
+            if (disposable != null) { disposable.dispose(); }
             hidePolygons();
         }
         arePolygonsShowing = !arePolygonsShowing;
         ctaPolygons.setText(arePolygonsShowing ? getString(R.string.cta_hide_polygons) : getString(R.string.cta_show_polygons));
+        ctaPolygonsBatches.setText(arePolygonsShowing ? getString(R.string.cta_hide_polygons) : getString(R.string
+                .cta_show_polygons_batches));
     }
 
     private void hidePolygons() {
