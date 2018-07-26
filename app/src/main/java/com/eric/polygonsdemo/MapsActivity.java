@@ -3,7 +3,6 @@ package com.eric.polygonsdemo;
 import android.graphics.Color;
 import android.os.Bundle;
 import android.support.v4.app.FragmentActivity;
-import android.util.Log;
 import android.view.View;
 import android.widget.Button;
 
@@ -14,71 +13,134 @@ import com.google.android.gms.maps.SupportMapFragment;
 import com.google.android.gms.maps.model.LatLng;
 import com.google.android.gms.maps.model.Polygon;
 import com.google.android.gms.maps.model.PolygonOptions;
-import com.orhanobut.logger.Logger;
 
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
+import java.io.IOException;
+import java.io.InputStream;
 import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
+import io.reactivex.Observable;
+import io.reactivex.ObservableSource;
+import io.reactivex.Single;
+import io.reactivex.SingleSource;
+import io.reactivex.android.schedulers.AndroidSchedulers;
+import io.reactivex.disposables.Disposable;
+import io.reactivex.functions.Function;
+import io.reactivex.internal.functions.Functions;
+import io.reactivex.schedulers.Schedulers;
+import io.reactivex.subjects.PublishSubject;
 import timber.log.Timber;
 
-import static com.eric.polygonsdemo.MapConstants.HEATMAP_DATA;
-
 public class MapsActivity extends FragmentActivity implements OnMapReadyCallback {
-
-    private static final int ALPHA_SUBTRACT_MAX = 0xCC000000;// 80%
-    private static final int ALPHA_SUBTRACT_MEDIUM = 0x80000000;// 50%
-    private static final int ALPHA_UBTRACT_MIN = 0x33000000;// 20%
-
+    private static final int SAMPLE_SIZE = 500;
     private GoogleMap mMap;
-    private List<PolygonOptions> polygonOptionsList = new ArrayList<>();
     private boolean arePolygonsShowing = false;
     private List<Polygon> polygonsDrawn = new ArrayList<>();
     private Button ctaPolygons;
     private SimpleCountingIdlingResource mapIdlingResource;
-    private double demandMax;
-    private double demandMin;
-    private double demandTier2;
-    private double demandTier3;
+    PublishSubject<List<MyPolygon>> polygonData = PublishSubject.create();
+
+    private Disposable disposable;
+    private Disposable disposable1;
+    private View ctaPolygonsBatches;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_maps);
 
-        initPolygonList();
-
         ctaPolygons = findViewById(R.id.cta_polygons);
-        ctaPolygons.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                togglePolygons();
-            }
-        });
+        ctaPolygonsBatches = findViewById(R.id.cta_polygons_batches);
+        ctaPolygons.setOnClickListener(v -> togglePolygons(false));
+        ctaPolygonsBatches.setOnClickListener(v -> togglePolygons(true));
 
         // Obtain the SupportMapFragment and get notified when the map is ready to be used.
-        SupportMapFragment mapFragment = (SupportMapFragment) getSupportFragmentManager()
-                .findFragmentById(R.id.map);
+        SupportMapFragment mapFragment = (SupportMapFragment) getSupportFragmentManager().findFragmentById(R.id.map);
         mapFragment.getMapAsync(this);
         mapIdlingResource = new SimpleCountingIdlingResource("mapready");
         mapIdlingResource.increment();
+
+        disposable1 = polygonData.flatMap(myPolygons -> {
+            Timber.i("consuming %d polygons", myPolygons.size());
+            return Observable.fromIterable(myPolygons)
+                    .subscribeOn(Schedulers.io())
+                    .observeOn(AndroidSchedulers.mainThread())
+                    .doOnNext(myPolygon -> polygonsDrawn.add(mMap.addPolygon(new PolygonOptions().addAll(myPolygon.getLatLngs())
+                            .fillColor(myPolygon.getColourFillFinal())
+                            .strokeColor(Color.TRANSPARENT)
+                            .strokeWidth(0))));
+        })
+                .subscribe(Functions.emptyConsumer(), Timber::d);
     }
 
-    private void togglePolygons() {
+    @Override
+    protected void onDestroy() {
+        if (disposable != null) { disposable.dispose(); }
+        if (disposable1 != null) { disposable1.dispose(); }
+        super.onDestroy();
+    }
+
+    /**
+     * Read polygon data from the geohashes in 5k_geohashes_jakarta.json file
+     *
+     * @return
+     */
+    Single<List<MyPolygon>> fetchPolygons() {
+        Timber.i("fetchPolygons");
+        String data = loadJSONFromAsset();
+        try {
+            JSONObject jsonObject = new JSONObject(data);
+            final JSONArray jsonArray = jsonObject.getJSONArray("scores");
+            return Observable.just(jsonArray)
+                    .flatMap((Function<JSONArray, ObservableSource<Integer>>) jsonArray1 -> Observable.range(0, jsonArray1.length()))
+                    .flatMapSingle((Function<Integer, SingleSource<MyPolygon>>) integer -> {
+                        JSONObject row = jsonArray.getJSONObject(integer);
+                        String geohash = row.getString("geohash");
+                        double opacity = row.getDouble("shade");
+                        return GeoHashUtils.decodeGeohash(geohash)
+                                .map(doubles -> MyPolygon.create(GeoHashUtils.getPolygonPoints(doubles), 0xFFC32C01, opacity));
+                    })
+                    .toList();
+        } catch (JSONException e) {
+            return Single.error(e);
+        }
+    }
+
+    Observable<List<MyPolygon>> fetchPolygonsRep() {
+        return Observable.interval(0, 3L, TimeUnit.MINUTES, Schedulers.io())
+                .flatMapSingle(aLong -> fetchPolygons());
+    }
+
+    public String loadJSONFromAsset() {
+        String json = null;
+        try {
+            InputStream is = getAssets().open("5k_geohashes_jakarta.json");
+            int size = is.available();
+            byte[] buffer = new byte[size];
+            is.read(buffer);
+            is.close();
+            json = new String(buffer, "UTF-8");
+        } catch (IOException ex) {
+            ex.printStackTrace();
+            return null;
+        }
+        return json;
+    }
+
+
+    private void togglePolygons(boolean batch) {
         if (!arePolygonsShowing) {
-            showPolygons();
+            showPolygons(batch);
         } else {
             hidePolygons();
         }
         arePolygonsShowing = !arePolygonsShowing;
-        ctaPolygons.setText(arePolygonsShowing ? getString(R.string.cta_hide_polygons) :
-                getString(R.string
-                        .cta_show_polygons));
+        ctaPolygons.setText(arePolygonsShowing ? getString(R.string.cta_hide_polygons) : getString(R.string.cta_show_polygons));
     }
 
     private void hidePolygons() {
@@ -88,96 +150,68 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
         polygonsDrawn.clear();
     }
 
-    private void showPolygons() {
-        SimpleCountingIdlingResource idlingResource = new SimpleCountingIdlingResource
-                ("showpolygons");
-//        idlingResource.increment();
-        for (int i = 0; i < polygonOptionsList.size(); i++) {
-            polygonsDrawn.add(mMap.addPolygon(polygonOptionsList.get(i)));
-        }
-//        idlingResource.decrement();
+    private void showPolygons(boolean batch) {
+        // Prevent multiple subscription when user taps button too fast
+        if (disposable != null) { disposable.dispose(); }
+        disposable = fetchPolygonsRep().observeOn(AndroidSchedulers.mainThread())
+                .doFinally(() -> {
+                    Timber.w("finally - clearing polygons");
+                    hidePolygons();
+                })
+                .doOnNext(list -> {
+                    Timber.w("re-drawing - total number of polygons: %d", list.size());
+                    hidePolygons();
+                })
+                .subscribeOn(Schedulers.io())
+                .flatMap((Function<List<MyPolygon>, ObservableSource<MyPolygonBatch>>) list -> {
+                    if (batch) { return split(list); }
+                    return Observable.just(MyPolygonBatch.create(0, list));
+                })
+                .concatMap((Function<MyPolygonBatch, ObservableSource<List<MyPolygon>>>) heatmapsPolygonBatch -> {
+                    // Start the 1st batch right away, subsequent batches waits 5 seconds
+                    long delay = heatmapsPolygonBatch.getBatchId() == 0 ? 0 : 1L;
+
+                    return Observable.just(heatmapsPolygonBatch.getPolygonList())
+                            .delay(delay, TimeUnit.SECONDS, Schedulers.io());
+                })
+                .doOnNext(polygons -> {
+                    Timber.i("drawing batch of %d polygons starting with %s", polygons.size(), polygons.get(0)
+                            .getLatLngs());
+                    drawPolygons(polygons);
+                })
+                .subscribe(Functions.emptyConsumer(), Timber::e);
     }
 
-    private void initPolygonList() {
-        JSONArray array;
-        List<double[]> list = new ArrayList<>();
-        List<Double> demandScores = new ArrayList<>();
-        try {
-            JSONObject tmp = new JSONObject(HEATMAP_DATA);
-            array = tmp.getJSONArray("data");
-            for (int i = 0; i < array.length(); i++) {
-                JSONObject row = array.getJSONObject(i);
-                String geohash = row.getString("geohash");
-                double demand = row.getDouble("score");
-                demandScores.add(demand);
-                list.add(GeoHashUtils.decode(geohash));
-            }
-        } catch (JSONException e) {
-            Log.e("", "problem", e);
-        }
-        demandMax = Collections.max(demandScores);
-        demandTier2 = demandMin + (demandMax - demandMin) / 3;
-        demandTier3 = demandMin + (demandMax - demandMin) * 2 / 3;
-        demandMin = Collections.min(demandScores);
-        Timber.i("demand thresholds: %s", Arrays.toString(new Double[]{demandMin, demandTier2,
-                demandTier3,
-                demandMax}));
+    /**
+     * Sort the original list
+     * and split it into smaller list (each has length of {@link #SAMPLE_SIZE}
+     *
+     * @param orgList
+     * @return
+     */
+    Observable<MyPolygonBatch> split(final List<MyPolygon> orgList) {
+        return Observable.fromIterable(orgList)
+                .toSortedList((o1, o2) -> Double.compare(o1.getFillOpacity(), o2.getFillOpacity()))
+                .flatMapObservable(sortedList -> {
+                    if (sortedList.size() < SAMPLE_SIZE) {
+                        return Observable.just(MyPolygonBatch.create(0, sortedList));
+                    } else {
+                        return Observable.just(sortedList)
+                                .concatMap(list -> Observable.range(0, list.size()))
+                                .filter(integer -> integer % SAMPLE_SIZE == 0)
+                                .map(batchId -> {
+                                    final int upperBound = sortedList.size() - batchId;
+                                    final int lowerBound = (upperBound - SAMPLE_SIZE) >= 0 ? upperBound - SAMPLE_SIZE : 0;
+                                    return MyPolygonBatch.create(batchId, sortedList.subList(lowerBound, upperBound));
 
-        polygonOptionsList = new ArrayList<>();
-        for (int i = 0; i < list.size(); i++) {
-            double[] latlngs = list.get(i);
-            List<LatLng> polygon = new ArrayList<>();
-            polygon.add(new LatLng(latlngs[1], latlngs[2]));
-            polygon.add(new LatLng(latlngs[1], latlngs[3]));
-            polygon.add(new LatLng(latlngs[0], latlngs[3]));
-            polygon.add(new LatLng(latlngs[0], latlngs[2]));
-            polygonOptionsList.add(new PolygonOptions().addAll(polygon)
-                    .fillColor(getColour(demandScores.get(i)))
-                    .strokeColor(Color.TRANSPARENT)
-                    .strokeWidth(0));
-        }
-        Timber.i("number of polygons: %d", polygonOptionsList.size());
+                                });
+                    }
+                });
     }
 
-    private int getColour(Double demand) {
-        if (BuildConfig.FLAVOR.equalsIgnoreCase("versionB")) {
-            return getColourBucket(demand);
-        }
-        double alpha = (demand - demandMin) / (demandMax - demandMin);
-        // put alpha into 0.35-0.9 range
-        alpha = (alpha * (0.9 - 0.35)) + 0.35;
-        return adjustAlpha(Color.MAGENTA, alpha);
-    }
-
-    private int adjustAlpha(int color,
-                            double factor) {
-        int alpha = (int) Math.round(Color.alpha(color) * factor);
-        int red = Color.red(color);
-        int green = Color.green(color);
-        int blue = Color.blue(color);
-        return Color.argb(alpha, red, green, blue);
-    }
-
-    private int getColourBucket(double demand) {
-        Timber.i("getColourBucket");
-        final int color;
-        int tier;
-        if (Double.compare(demand, demandMin) >= 0 && Double.compare(demand, demandTier2) < 0) {
-//            color = Color.MAGENTA - ALPHA_SUBTRACT_MAX;
-            color = adjustAlpha(Color.MAGENTA, 0.35);
-            tier = 1;
-        } else if (Double.compare(demand, demandTier2) >= 0 && Double.compare(demand,
-                demandTier3) < 0) {
-//            color = Color.MAGENTA - ALPHA_SUBTRACT_MEDIUM;
-            color = adjustAlpha(Color.MAGENTA, 0.6);
-            tier = 2;
-        } else {
-//            color = Color.MAGENTA - ALPHA_UBTRACT_MIN;
-            color = adjustAlpha(Color.MAGENTA, 0.9);
-            tier = 3;
-        }
-        Timber.i("demand %f belongs to tier %d", demand, tier);
-        return color;
+    private void drawPolygons(List<MyPolygon> polygons) {
+        Timber.i("drawPolygons - %d polygons - publish event", polygons.size());
+        polygonData.onNext(polygons);
     }
 
     /**
