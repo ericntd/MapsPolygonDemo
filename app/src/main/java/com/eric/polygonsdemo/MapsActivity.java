@@ -42,7 +42,6 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
     private boolean arePolygonsShowing = false;
     private List<Polygon> polygonsDrawn = new ArrayList<>();
     private Button ctaPolygons;
-    private SimpleCountingIdlingResource mapIdlingResource;
     PublishSubject<List<MyPolygon>> polygonData = PublishSubject.create();
 
     private Disposable disposable;
@@ -62,8 +61,6 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
         // Obtain the SupportMapFragment and get notified when the map is ready to be used.
         SupportMapFragment mapFragment = (SupportMapFragment) getSupportFragmentManager().findFragmentById(R.id.map);
         mapFragment.getMapAsync(this);
-        mapIdlingResource = new SimpleCountingIdlingResource("mapready");
-        mapIdlingResource.increment();
 
         disposable1 = polygonData.flatMap(myPolygons -> {
             Timber.i("consuming %d polygons", myPolygons.size());
@@ -232,6 +229,6 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
 
         LatLng jakarta = new LatLng(-6.175110, 106.865039);
         mMap.moveCamera(CameraUpdateFactory.newLatLngZoom(jakarta, 10.0f));
-        mapIdlingResource.decrement();
+        mMap.moveCamera(CameraUpdateFactory.newLatLngZoom(new LatLng(-6.146921, 106.879725), 10));
     }
 }
