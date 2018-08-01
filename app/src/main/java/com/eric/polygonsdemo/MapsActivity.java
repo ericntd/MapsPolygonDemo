@@ -138,14 +138,14 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
                                 final boolean isMyPolygonVisible = isVisible(myPolygon);
                                 if (isMyPolygonVisible && geohashCache.get(myPolygon) == null) {
                                     drawnCount.getAndIncrement();
-                                    LatLngBounds latLngBounds = new LatLngBounds(myPolygon.getLatLngs()
+                                    final LatLngBounds latLngBounds = new LatLngBounds(myPolygon.getLatLngs()
                                             .get(3), myPolygon.getLatLngs()
                                             .get(1));
-                                    GroundOverlayOptions overlayOptions = new GroundOverlayOptions().image(BitmapDescriptorFactory
+                                    final GroundOverlayOptions overlayOptions = new GroundOverlayOptions().image(BitmapDescriptorFactory
                                             .fromResource(R.drawable.polygon_colour))
                                             .transparency(myPolygon.getFillOpacity())
                                             .positionFromBounds(latLngBounds);
-                                    GroundOverlay groundOverlay = mMap.addGroundOverlay(overlayOptions);
+                                    final GroundOverlay groundOverlay = mMap.addGroundOverlay(overlayOptions);
                                     geohashCache.put(myPolygon, groundOverlay);
                                 }
 
@@ -159,42 +159,40 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
                 })
                 .subscribe(Functions.emptyConsumer(), Timber::d);
 
-        //        disposable1 = Observable.combineLatest(cameraIdle.filter(o -> o)
-        //                .throttleFirst(500L, TimeUnit.MILLISECONDS, Schedulers.io()), polygonData.filter(myPolygons -> !myPolygons
-        // .isEmpty()),
-        //                Pair::create)
-        //                .flatMap((Function<Pair<Boolean, List<MyPolygon>>, ObservableSource<MyPolygon>>) booleanListPair -> {
-        //                    Timber.i("camera is idle and there are polygons yaY!");
-        //                    Timber.i("consuming %d polygons in total", booleanListPair.second.size());
-        //                    AtomicInteger drawnCount = new AtomicInteger();
-        //                    return Observable.fromIterable(booleanListPair.second)
-        //                            .subscribeOn(Schedulers.io())
-        //                            .observeOn(AndroidSchedulers.mainThread())
-        //                            .doOnNext(myPolygon -> {
-        //                                final boolean isMyPolygonVisible = isVisible(myPolygon);
-        //                                if (isMyPolygonVisible) { drawnCount.getAndIncrement(); }
-        //                                final LatLngBounds latLngBounds = new LatLngBounds(myPolygon.getLatLngs()
-        //                                        .get(3), myPolygon.getLatLngs()
-        //                                        .get(1));
-        //                                final GroundOverlayOptions overlayOptions = new GroundOverlayOptions().image
-        // (BitmapDescriptorFactory
-        //                                        .fromResource(R.drawable.polygon_colour))
-        //                                        .transparency(myPolygon.getFillOpacity())
-        //                                        .positionFromBounds(latLngBounds);
-        //                                final GroundOverlay groundOverlay = mMap.addGroundOverlay(overlayOptions);
-        //                                groundOverlay.setVisible(isMyPolygonVisible);
-        //                                groundOverlayList.add(groundOverlay);
-        //                                //                            polygonsDrawn.add(mMap.addPolygon(new PolygonOptions().addAll
-        // (myPolygon
-        //                                // .getLatLngs())
-        //                                //                                    .fillColor(myPolygon.getColourFillFinal())
-        //                                //                                    .strokeColor(Color.TRANSPARENT)
-        //                                //                                    .strokeWidth(0)));
-        //                            })
-        //                            .doOnComplete(() -> Timber.i("Number of polygons actually drawn due to visibility is %d",
-        // drawnCount.get()));
-        //                })
-        //                .subscribe(Functions.emptyConsumer(), Timber::d);
+        disposable1 = Observable.combineLatest(cameraIdle.filter(o -> o)
+                .throttleFirst(1L, TimeUnit.SECONDS), polygonData.filter(myPolygons -> !myPolygons.isEmpty()), Pair::create)
+                .flatMap((Function<Pair<Boolean, List<MyPolygon>>, ObservableSource<MyPolygon>>) booleanListPair -> {
+                    Timber.i("camera is idle and there are polygons yaY!");
+                    Timber.i("consuming %d polygons in total", booleanListPair.second.size());
+                    AtomicInteger drawnCount = new AtomicInteger();
+                    return Observable.fromIterable(booleanListPair.second)
+                            .subscribeOn(Schedulers.io())
+                            .observeOn(AndroidSchedulers.mainThread())
+                            .doOnNext(myPolygon -> {
+                                final boolean isMyPolygonVisible = isVisible(myPolygon);
+                                if (isMyPolygonVisible && geohashCache.get(myPolygon) == null) {
+                                    drawnCount.getAndIncrement();
+                                    final LatLngBounds latLngBounds = new LatLngBounds(myPolygon.getLatLngs()
+                                            .get(3), myPolygon.getLatLngs()
+                                            .get(1));
+                                    final GroundOverlayOptions overlayOptions = new GroundOverlayOptions().image(BitmapDescriptorFactory
+                                            .fromResource(R.drawable.polygon_colour))
+                                            .transparency(myPolygon.getFillOpacity())
+                                            .positionFromBounds(latLngBounds);
+                                    final GroundOverlay groundOverlay = mMap.addGroundOverlay(overlayOptions);
+                                    geohashCache.put(myPolygon, groundOverlay);
+                                }
+
+                                //                            polygonsDrawn.add(mMap.addPolygon(new PolygonOptions().addAll
+                                //         (myPolygon
+                                // .getLatLngs())
+                                //                                    .fillColor(myPolygon.getColourFillFinal())
+                                //                                    .strokeColor(Color.TRANSPARENT)
+                                //                                    .strokeWidth(0)));
+                            })
+                            .doOnComplete(() -> Timber.i("Number of polygons actually drawn due to visibility is %d", drawnCount.get()));
+                })
+                .subscribe(Functions.emptyConsumer(), Timber::d);
     }
 
     private boolean isVisible(MyPolygon myPolygon) {
