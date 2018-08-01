@@ -1,18 +1,20 @@
 package com.eric.polygonsdemo;
 
-import android.graphics.Color;
 import android.os.Bundle;
 import android.support.v4.app.FragmentActivity;
-import android.view.View;
+import android.support.v4.util.Pair;
 import android.widget.Button;
 
 import com.google.android.gms.maps.CameraUpdateFactory;
 import com.google.android.gms.maps.GoogleMap;
 import com.google.android.gms.maps.OnMapReadyCallback;
 import com.google.android.gms.maps.SupportMapFragment;
+import com.google.android.gms.maps.model.BitmapDescriptorFactory;
+import com.google.android.gms.maps.model.GroundOverlay;
+import com.google.android.gms.maps.model.GroundOverlayOptions;
 import com.google.android.gms.maps.model.LatLng;
+import com.google.android.gms.maps.model.LatLngBounds;
 import com.google.android.gms.maps.model.Polygon;
-import com.google.android.gms.maps.model.PolygonOptions;
 
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -21,8 +23,11 @@ import org.json.JSONObject;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import io.reactivex.Observable;
 import io.reactivex.ObservableSource;
@@ -30,55 +35,194 @@ import io.reactivex.Single;
 import io.reactivex.SingleSource;
 import io.reactivex.android.schedulers.AndroidSchedulers;
 import io.reactivex.disposables.Disposable;
+import io.reactivex.functions.Action;
 import io.reactivex.functions.Function;
+import io.reactivex.functions.Predicate;
 import io.reactivex.internal.functions.Functions;
 import io.reactivex.schedulers.Schedulers;
 import io.reactivex.subjects.PublishSubject;
 import timber.log.Timber;
 
-public class MapsActivity extends FragmentActivity implements OnMapReadyCallback {
+public class MapsActivity extends FragmentActivity implements OnMapReadyCallback, GoogleMap.OnCameraIdleListener, GoogleMap
+        .OnCameraMoveListener, GoogleMap.OnCameraMoveStartedListener, GoogleMap.OnCameraMoveCanceledListener {
     private static final int SAMPLE_SIZE = 500;
     private GoogleMap mMap;
     private boolean arePolygonsShowing = false;
     private List<Polygon> polygonsDrawn = new ArrayList<>();
+    private List<GroundOverlay> groundOverlayList = new ArrayList<>();
+    private Map<MyPolygon, GroundOverlay> geohashCache = new HashMap<>();
     private Button ctaPolygons;
+    private Button ctaRefresh;
     PublishSubject<List<MyPolygon>> polygonData = PublishSubject.create();
+    List<MyPolygon> polygonData2 = new ArrayList<>();
+    PublishSubject<Boolean> cameraIdle = PublishSubject.create();
 
     private Disposable disposable;
     private Disposable disposable1;
     private Button ctaPolygonsBatches;
+    private Disposable disposable2;
+    private boolean batchDrawing = true;
+    private boolean shouldRepeat = false;
+    private Button ctaToggleRepeat;
+    private LatLng topLeft;
+    private LatLng bottomRight;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_maps);
 
+        ctaToggleRepeat = findViewById(R.id.cta_toggle_loop);
+        ctaToggleRepeat.setOnClickListener(v -> {
+            shouldRepeat = !shouldRepeat;
+            ctaToggleRepeat.setText(shouldRepeat ? getString(R.string.repeat) : getString(R.string.not_repeating));
+        });
+        ctaRefresh = findViewById(R.id.cta_refresh);
+        ctaRefresh.setOnClickListener(v -> showPolygons());
         ctaPolygons = findViewById(R.id.cta_polygons);
         ctaPolygonsBatches = findViewById(R.id.cta_polygons_batches);
-        ctaPolygons.setOnClickListener(v -> togglePolygons(false));
-        ctaPolygonsBatches.setOnClickListener(v -> togglePolygons(true));
+        ctaPolygons.setOnClickListener(v -> {
+            batchDrawing = false;
+            togglePolygons();
+        });
+        ctaPolygonsBatches.setOnClickListener(v -> {
+            batchDrawing = true;
+            togglePolygons();
+        });
 
         // Obtain the SupportMapFragment and get notified when the map is ready to be used.
         SupportMapFragment mapFragment = (SupportMapFragment) getSupportFragmentManager().findFragmentById(R.id.map);
         mapFragment.getMapAsync(this);
 
-        disposable1 = polygonData.flatMap(myPolygons -> {
-            Timber.i("consuming %d polygons", myPolygons.size());
-            return Observable.fromIterable(myPolygons)
-                    .subscribeOn(Schedulers.io())
-                    .observeOn(AndroidSchedulers.mainThread())
-                    .doOnNext(myPolygon -> polygonsDrawn.add(mMap.addPolygon(new PolygonOptions().addAll(myPolygon.getLatLngs())
-                            .fillColor(myPolygon.getColourFillFinal())
-                            .strokeColor(Color.TRANSPARENT)
-                            .strokeWidth(0))));
-        })
+        //        disposable1 = polygonData.flatMap(myPolygons -> {
+        //            Timber.i("consuming %d polygons", myPolygons.size());
+        //            mMap.setTrafficEnabled(true);
+        //            AtomicInteger drawnCount = new AtomicInteger();
+        //            return Observable.fromIterable(myPolygons)
+        //                    .subscribeOn(Schedulers.io())
+        //                    .observeOn(AndroidSchedulers.mainThread())
+        //                    .doOnNext(myPolygon -> {
+        //                        final boolean isMyPolygonVisible = isVisible(myPolygon);
+        //                        if (isMyPolygonVisible && geohashCache.get(myPolygon) == null) {
+        //                            drawnCount.getAndIncrement();
+        //                            final LatLngBounds latLngBounds = new LatLngBounds(myPolygon.getLatLngs()
+        //                                    .get(3), myPolygon.getLatLngs()
+        //                                    .get(1));
+        //                            final GroundOverlayOptions overlayOptions = new GroundOverlayOptions().image(BitmapDescriptorFactory
+        //                                    .fromResource(R.drawable.polygon_colour))
+        //                                    .transparency(myPolygon.getFillOpacity())
+        //                                    .positionFromBounds(latLngBounds);
+        //                            final GroundOverlay groundOverlay = mMap.addGroundOverlay(overlayOptions);
+        //                            geohashCache.put(myPolygon, groundOverlay);
+        //                        }
+        //                        //                            polygonsDrawn.add(mMap.addPolygon(new PolygonOptions().addAll(myPolygon
+        //                        // .getLatLngs())
+        //                        //                                    .fillColor(myPolygon.getColourFillFinal())
+        //                        //                                    .strokeColor(Color.TRANSPARENT)
+        //                        //                                    .strokeWidth(0)));
+        //                    })
+        //                    .doOnComplete(() -> Timber.i("Number of polygons actually drawn due to visibility is %d", drawnCount.get()));
+        //        })
+        //                .subscribe(Functions.emptyConsumer(), Timber::d);
+
+        disposable1 = cameraIdle.startWith(true)
+                .filter(o -> o)
+                .throttleFirst(500L, TimeUnit.MILLISECONDS, Schedulers.io())
+                .flatMap((Function<Boolean, ObservableSource<MyPolygon>>) aBoolean -> {
+                    mMap.setTrafficEnabled(true);
+                    AtomicInteger drawnCount = new AtomicInteger();
+                    return Observable.fromIterable(polygonData2)
+                            .subscribeOn(Schedulers.io())
+                            .observeOn(AndroidSchedulers.mainThread())
+                            .doOnNext(myPolygon -> {
+                                final boolean isMyPolygonVisible = isVisible(myPolygon);
+                                if (isMyPolygonVisible && geohashCache.get(myPolygon) == null) {
+                                    drawnCount.getAndIncrement();
+                                    LatLngBounds latLngBounds = new LatLngBounds(myPolygon.getLatLngs()
+                                            .get(3), myPolygon.getLatLngs()
+                                            .get(1));
+                                    GroundOverlayOptions overlayOptions = new GroundOverlayOptions().image(BitmapDescriptorFactory
+                                            .fromResource(R.drawable.polygon_colour))
+                                            .transparency(myPolygon.getFillOpacity())
+                                            .positionFromBounds(latLngBounds);
+                                    GroundOverlay groundOverlay = mMap.addGroundOverlay(overlayOptions);
+                                    geohashCache.put(myPolygon, groundOverlay);
+                                }
+
+                                //                            polygonsDrawn.add(mMap.addPolygon(new PolygonOptions().addAll(myPolygon
+                                // .getLatLngs())
+                                //                                    .fillColor(myPolygon.getColourFillFinal())
+                                //                                    .strokeColor(Color.TRANSPARENT)
+                                //                                    .strokeWidth(0)));
+                            })
+                            .doOnComplete(() -> Timber.i("Number of polygons actually drawn due to visibility is %d", drawnCount.get()));
+                })
                 .subscribe(Functions.emptyConsumer(), Timber::d);
+
+        //        disposable1 = Observable.combineLatest(cameraIdle.filter(o -> o)
+        //                .throttleFirst(500L, TimeUnit.MILLISECONDS, Schedulers.io()), polygonData.filter(myPolygons -> !myPolygons
+        // .isEmpty()),
+        //                Pair::create)
+        //                .flatMap((Function<Pair<Boolean, List<MyPolygon>>, ObservableSource<MyPolygon>>) booleanListPair -> {
+        //                    Timber.i("camera is idle and there are polygons yaY!");
+        //                    Timber.i("consuming %d polygons in total", booleanListPair.second.size());
+        //                    AtomicInteger drawnCount = new AtomicInteger();
+        //                    return Observable.fromIterable(booleanListPair.second)
+        //                            .subscribeOn(Schedulers.io())
+        //                            .observeOn(AndroidSchedulers.mainThread())
+        //                            .doOnNext(myPolygon -> {
+        //                                final boolean isMyPolygonVisible = isVisible(myPolygon);
+        //                                if (isMyPolygonVisible) { drawnCount.getAndIncrement(); }
+        //                                final LatLngBounds latLngBounds = new LatLngBounds(myPolygon.getLatLngs()
+        //                                        .get(3), myPolygon.getLatLngs()
+        //                                        .get(1));
+        //                                final GroundOverlayOptions overlayOptions = new GroundOverlayOptions().image
+        // (BitmapDescriptorFactory
+        //                                        .fromResource(R.drawable.polygon_colour))
+        //                                        .transparency(myPolygon.getFillOpacity())
+        //                                        .positionFromBounds(latLngBounds);
+        //                                final GroundOverlay groundOverlay = mMap.addGroundOverlay(overlayOptions);
+        //                                groundOverlay.setVisible(isMyPolygonVisible);
+        //                                groundOverlayList.add(groundOverlay);
+        //                                //                            polygonsDrawn.add(mMap.addPolygon(new PolygonOptions().addAll
+        // (myPolygon
+        //                                // .getLatLngs())
+        //                                //                                    .fillColor(myPolygon.getColourFillFinal())
+        //                                //                                    .strokeColor(Color.TRANSPARENT)
+        //                                //                                    .strokeWidth(0)));
+        //                            })
+        //                            .doOnComplete(() -> Timber.i("Number of polygons actually drawn due to visibility is %d",
+        // drawnCount.get()));
+        //                })
+        //                .subscribe(Functions.emptyConsumer(), Timber::d);
+    }
+
+    private boolean isVisible(MyPolygon myPolygon) {
+        double minLat = myPolygon.getLatLngs()
+                .get(2).latitude;
+        double maxLat = myPolygon.getLatLngs()
+                .get(0).latitude;
+        double minLng = myPolygon.getLatLngs()
+                .get(0).longitude;
+        double maxLng = myPolygon.getLatLngs()
+                .get(2).latitude;
+        return (isVisibleLat(minLat) && isVisibleLong(minLng)) || (isVisibleLat(minLat) && isVisibleLong(maxLng)) || (isVisibleLat
+                (maxLat) && isVisibleLong(minLng)) || (isVisibleLat(maxLat) && isVisibleLong(maxLng));
+    }
+
+    private boolean isVisibleLat(double lat) {
+        return bottomRight.latitude < lat && lat < topLeft.latitude;
+    }
+
+    private boolean isVisibleLong(double lng) {
+        return bottomRight.longitude > lng && lng > topLeft.longitude;
     }
 
     @Override
     protected void onDestroy() {
         if (disposable != null) { disposable.dispose(); }
         if (disposable1 != null) { disposable1.dispose(); }
+        if (disposable2 != null) { disposable2.dispose(); }
         super.onDestroy();
     }
 
@@ -87,7 +231,7 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
      *
      * @return
      */
-    Single<List<MyPolygon>> fetchPolygons() {
+    Single<List<MyPolygon>> fetchPolygonsOnce() {
         Timber.i("fetchPolygons");
         String data = loadJSONFromAsset();
         try {
@@ -98,7 +242,7 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
                     .flatMapSingle((Function<Integer, SingleSource<MyPolygon>>) integer -> {
                         JSONObject row = jsonArray.getJSONObject(integer);
                         String geohash = row.getString("geohash");
-                        double opacity = row.getDouble("shade");
+                        float opacity = (float) row.getDouble("shade");
                         return GeoHashUtils.decodeGeohash(geohash)
                                 .map(doubles -> MyPolygon.create(GeoHashUtils.getPolygonPoints(doubles), 0xFFC32C01, opacity));
                     })
@@ -109,8 +253,10 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
     }
 
     Observable<List<MyPolygon>> fetchPolygonsRep() {
-        return Observable.interval(0, 3L, TimeUnit.MINUTES, Schedulers.io())
-                .flatMapSingle(aLong -> fetchPolygons());
+        if (shouldRepeat) {
+            return Observable.interval(0, 3L, TimeUnit.MINUTES, Schedulers.io())
+                    .flatMapSingle(aLong -> fetchPolygonsOnce());
+        } else { return fetchPolygonsOnce().toObservable(); }
     }
 
     public String loadJSONFromAsset() {
@@ -130,9 +276,9 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
     }
 
 
-    private void togglePolygons(boolean batch) {
+    private void togglePolygons() {
         if (!arePolygonsShowing) {
-            showPolygons(batch);
+            showPolygons();
         } else {
             if (disposable != null) { disposable.dispose(); }
             hidePolygons();
@@ -144,16 +290,28 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
     }
 
     private void hidePolygons() {
+        mMap.setTrafficEnabled(false);
         for (Polygon polygon : polygonsDrawn) {
             polygon.remove();
         }
         polygonsDrawn.clear();
+        for (GroundOverlay groundOverlay : groundOverlayList) {
+            groundOverlay.remove();
+        }
+        groundOverlayList.clear();
+        for (MyPolygon myPolygon : geohashCache.keySet()) {
+            GroundOverlay groundOverlay = geohashCache.get(myPolygon);
+            groundOverlay.remove();
+        }
+        geohashCache.clear();
     }
 
-    private void showPolygons(boolean batch) {
+    private void showPolygons() {
         // Prevent multiple subscription when user taps button too fast
         if (disposable != null) { disposable.dispose(); }
-        disposable = fetchPolygonsRep().observeOn(AndroidSchedulers.mainThread())
+
+        disposable = fetchPolygonsRep().subscribeOn(Schedulers.io())
+                .observeOn(AndroidSchedulers.mainThread())
                 .doFinally(() -> {
                     Timber.w("finally - clearing polygons");
                     hidePolygons();
@@ -164,22 +322,54 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
                 })
                 .subscribeOn(Schedulers.io())
                 .flatMap((Function<List<MyPolygon>, ObservableSource<MyPolygonBatch>>) list -> {
-                    if (batch) { return split(list); }
+                    // list = list.subList(0, 2000);
+                    if (batchDrawing) { return split(list); }
                     return Observable.just(MyPolygonBatch.create(0, list));
                 })
                 .concatMap((Function<MyPolygonBatch, ObservableSource<List<MyPolygon>>>) heatmapsPolygonBatch -> {
                     // Start the 1st batch right away, subsequent batches waits 5 seconds
-                    long delay = heatmapsPolygonBatch.getBatchId() == 0 ? 0 : 1L;
+                    long delay = heatmapsPolygonBatch.getBatchId() == 0 ? 0 : 5L;
 
                     return Observable.just(heatmapsPolygonBatch.getPolygonList())
                             .delay(delay, TimeUnit.SECONDS, Schedulers.io());
                 })
+                .observeOn(AndroidSchedulers.mainThread())
                 .doOnNext(polygons -> {
                     Timber.i("drawing batch of %d polygons starting with %s", polygons.size(), polygons.get(0)
                             .getLatLngs());
                     drawPolygons(polygons);
                 })
                 .subscribe(Functions.emptyConsumer(), Timber::e);
+        //        disposable2 = Single.timer(3, TimeUnit.MINUTES, Schedulers.io())
+        //                .observeOn(AndroidSchedulers.mainThread())
+        //                .doOnSubscribe(new Consumer<Disposable>() {
+        //                    @Override
+        //                    public void accept(Disposable disposable) throws Exception {
+        //                        ctaRefresh.setVisibility(View.GONE);
+        //                    }
+        //                })
+        //                .doOnSuccess(new Consumer<Long>() {
+        //                    @Override
+        //                    public void accept(Long aLong) throws Exception {
+        //                        ctaRefresh.setVisibility(View.VISIBLE);
+        //                    }
+        //                })
+        //                .flatMapObservable(new Function<Long, ObservableSource<Polygon>>() {
+        //                    @Override
+        //                    public ObservableSource<Polygon> apply(Long aLong) throws Exception {
+        //                        return Observable.fromIterable(polygonsDrawn);
+        //                    }
+        //                })
+        //                .observeOn(AndroidSchedulers.mainThread())
+        //                .subscribe(new Consumer<Polygon>() {
+        //                    @Override
+        //                    public void accept(Polygon polygon) throws Exception {
+        //                        int color = Color.argb(Color.alpha(polygon.getFillColor()), Color.red(Color.BLACK), Color.green(Color
+        // .BLACK),
+        //                                Color.blue(Color.BLACK));
+        //                        polygon.setFillColor(color);
+        //                    }
+        //                }, Timber::e);
     }
 
     /**
@@ -212,6 +402,7 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
     private void drawPolygons(List<MyPolygon> polygons) {
         Timber.i("drawPolygons - %d polygons - publish event", polygons.size());
         polygonData.onNext(polygons);
+        polygonData2 = polygons;
     }
 
     /**
@@ -228,7 +419,36 @@ public class MapsActivity extends FragmentActivity implements OnMapReadyCallback
         mMap = googleMap;
 
         LatLng jakarta = new LatLng(-6.175110, 106.865039);
-        mMap.moveCamera(CameraUpdateFactory.newLatLngZoom(jakarta, 10.0f));
-        mMap.moveCamera(CameraUpdateFactory.newLatLngZoom(new LatLng(-6.146921, 106.879725), 10));
+        mMap.moveCamera(CameraUpdateFactory.newLatLngZoom(jakarta, 11.0f));
+
+        mMap.setOnCameraIdleListener(this);
+        mMap.setOnCameraMoveListener(this);
+        mMap.setOnCameraMoveStartedListener(this);
+        mMap.setOnCameraMoveCanceledListener(this);
+    }
+
+    @Override
+    public void onCameraIdle() {
+        Timber.d("onCameraIdle");
+        topLeft = mMap.getProjection()
+                .getVisibleRegion().farLeft;
+        bottomRight = mMap.getProjection()
+                .getVisibleRegion().nearRight;
+        cameraIdle.onNext(true);
+    }
+
+    @Override
+    public void onCameraMove() {
+        Timber.d("onCameraMove");
+    }
+
+    @Override
+    public void onCameraMoveStarted(int i) {
+
+    }
+
+    @Override
+    public void onCameraMoveCanceled() {
+
     }
 }

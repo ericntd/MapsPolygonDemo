@@ -1,6 +1,9 @@
 <resources>
     <string name="title_activity_maps">Map</string>
-    <string name="cta_show_polygons">Draw At Once</string>
-    <string name="cta_hide_polygons">Clear polygons</string>
-    <string name="cta_show_polygons_batches">Draw In Batches</string>
+    <string name="cta_show_polygons">At Once</string>
+    <string name="cta_hide_polygons">Clear</string>
+    <string name="cta_show_polygons_batches">In Batches</string>
+    <string name="cta_refresh">Refresh</string>
+    <string name="not_repeating">No Repeat</string>
+    <string name="repeat">Repeating</string>
 </resources>

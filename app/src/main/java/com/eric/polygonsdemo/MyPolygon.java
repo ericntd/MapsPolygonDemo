@@ -10,7 +10,7 @@ import java.util.List;
 public class MyPolygon {
     private final List<LatLng> latLngs;
     private final int fillColour;
-    private final double fillOpacity;
+    private final float fillOpacity;
 
     public List<LatLng> getLatLngs() {
         return latLngs;
@@ -21,17 +21,17 @@ public class MyPolygon {
         return fillColour;
     }
 
-    public double getFillOpacity() {
+    public float getFillOpacity() {
         return fillOpacity;
     }
 
-    private MyPolygon(List<LatLng> latLngList, int fillColour, double fillOpacity) {
+    private MyPolygon(List<LatLng> latLngList, int fillColour, float fillOpacity) {
         this.latLngs = latLngList;
         this.fillColour = fillColour;
         this.fillOpacity = fillOpacity;
     }
 
-    public static MyPolygon create(List<LatLng> latLngList, int fillColor, double fillOpacity) {
+    public static MyPolygon create(List<LatLng> latLngList, int fillColor, float fillOpacity) {
         return new MyPolygon(latLngList, fillColor, fillOpacity);
     }
 

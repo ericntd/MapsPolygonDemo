@@ -13,6 +13,14 @@
         />
 
     <Button
+        android:id="@+id/cta_toggle_loop"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/not_repeating"
+        android:layout_gravity="center_horizontal"
+        />
+
+    <Button
         android:id="@+id/cta_polygons_batches"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
@@ -26,5 +34,15 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         tools:context="com.eric.polygonsdemo.MapsActivity"
+        />
+
+    <Button
+        android:id="@+id/cta_refresh"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|center_horizontal"
+        android:layout_marginBottom="56dp"
+        android:text="@string/cta_refresh"
+        android:visibility="gone"
         />
 </FrameLayout>
